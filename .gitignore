@@ -1,0 +1,34 @@
+# Local Dimensions data, media, evaluator state, logs, and reports.
+dimensions_output/
+
+# Persistent browser session, cookies, caches, and local login state.
+.dimensions_playwright_profile/
+
+# Python caches and virtual environments.
+__pycache__/
+*.py[cod]
+.venv/
+Frontend/server/.venv/
+
+# Frontend dependencies and build output.
+Frontend/client/node_modules/
+Frontend/client/dist/
+
+# Local secrets/configuration.
+.env
+.env.*
+!.env.example
+
+# Editor and OS metadata.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary downloads, report artifacts, and Office lock files.
+*.tmp
+*.part
+~$*.xlsx
+
+# Local logs.
+*.log

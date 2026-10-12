@@ -1,0 +1,6 @@
+client/node_modules/
+client/dist/
+server/.venv/
+server/__pycache__/
+server/tests/__pycache__/
+*.log
