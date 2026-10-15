@@ -32,3 +32,13 @@ Thumbs.db
 
 # Local logs.
 *.log
+
+# Production packaging outputs and build environments.
+packaging/.build-venv/
+packaging/.frontend-build/
+packaging/.cache/
+packaging/build/
+packaging/dist/
+packaging/work/
+packaging/server_*.txt
+release/

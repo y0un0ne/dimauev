@@ -22,7 +22,7 @@ from worker_manager import WorkerManager, scope_label
 def test_scope_validation() -> None:
     single = ExtractRequest(date="2026-09-10")
     assert single.date.isoformat() == "2026-09-10"
-    ranged = EvaluateRequest(start_date="2026-09-01", end_date="2026-09-10")
+    ranged = EvaluateRequest(start_date="2026-09-01", end_date="2026-09-10", cloud_data_consent=True)
     assert ranged.end_date.isoformat() == "2026-09-10"
 
 
@@ -123,9 +123,49 @@ def test_evaluate_command_is_unbuffered_and_tracks_progress() -> None:
     assert command[command.index("--request-timeout") + 1] == "45"
 
 
+def test_frozen_worker_dispatch_uses_same_executable() -> None:
+    import worker_manager as manager_module
+
+    original = manager_module.is_frozen
+    manager_module.is_frozen = lambda: True
+    try:
+        manager = WorkerManager()
+        command, _ = manager._command("evaluate", {
+            "date": "2026-09-10", "mode": "normal", "delay": 0,
+            "limit": 1, "request_timeout": 30, "max_images": 1,
+            "thinking_level": "low",
+        })
+        assert command[:3] == [sys.executable, "--worker", "pipeline"]
+        assert "dimensions_pipeline.py" not in command
+    finally:
+        manager_module.is_frozen = original
+
+
 def test_scope_labels() -> None:
     assert scope_label({"date": "2026-09-10"}) == "2026-09-10"
     assert scope_label({"start_date": "2026-09-01", "end_date": "2026-09-10"}) == "2026-09-01_to_2026-09-10"
+
+
+def test_evaluation_requires_cloud_data_consent() -> None:
+    from pydantic import ValidationError
+
+    try:
+        EvaluateRequest(date="2026-09-10")
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("evaluation must require explicit cloud data consent")
+
+
+def test_security_headers_and_cross_origin_mutation_guard() -> None:
+    from fastapi.testclient import TestClient
+
+    with TestClient(app_module.app) as client:
+        page = client.get("/api/health")
+        assert page.headers["x-frame-options"] == "DENY"
+        assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+        blocked = client.post("/api/shutdown", headers={"Origin": "https://attacker.example"})
+        assert blocked.status_code == 403
 
 
 def test_windows_credential_round_trip() -> None:

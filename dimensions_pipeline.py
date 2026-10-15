@@ -10,11 +10,18 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from app_paths import bundle_root, is_frozen
 
-ROOT = Path(__file__).resolve().parent
+ROOT = bundle_root()
 MVP1 = ROOT / "dimensions_extractor_mvp1_5_2.py"
 MVP2 = ROOT / "dimensions_ai_evaluator_mvp2_6.py"
 MVP3 = ROOT / "dimensions_excel_generator_mvp3.py"
+
+
+def worker_command(worker: str, script: Path, args: List[str]) -> List[str]:
+    if is_frozen():
+        return [sys.executable, "--worker", worker, *args]
+    return [sys.executable, "-u", str(script), *args]
 
 
 def json_dump(path: Path, obj: Any) -> None:
@@ -361,25 +368,26 @@ def main() -> int:
 
     try:
         if dates and run_extract:
-            command = [sys.executable, str(MVP1)]
+            command_args: List[str] = []
             if len(dates) == 1:
-                command += ["--date", dates[0].isoformat()]
+                command_args += ["--date", dates[0].isoformat()]
             else:
-                command += ["--start-date", dates[0].isoformat(), "--end-date", dates[-1].isoformat()]
-            command += [
+                command_args += ["--start-date", dates[0].isoformat(), "--end-date", dates[-1].isoformat()]
+            command_args += [
                 "--output-dir", str(output_root),
                 "--profile-dir", str(Path(args.profile_dir).resolve()),
                 "--min-detail-coverage", str(args.min_detail_coverage),
                 "--max-missing-details", str(args.max_missing_details),
             ]
             if args.retry_missing:
-                command.append("--retry-missing")
+                command_args.append("--retry-missing")
             if args.rescan:
-                command.append("--rescan")
+                command_args.append("--rescan")
             if args.continue_on_error:
-                command.append("--continue-on-error")
+                command_args.append("--continue-on-error")
             if args.extract_control_file:
-                command += ["--control-file", str(Path(args.extract_control_file).resolve())]
+                command_args += ["--control-file", str(Path(args.extract_control_file).resolve())]
+            command = worker_command("extract", MVP1, command_args)
             code = run_command(command)
             summary["stages"]["extract"] = {"returncode": code}
             if code != 0:
@@ -422,8 +430,7 @@ def main() -> int:
         if dates and run_evaluate:
             stage_results: Dict[str, int] = {}
             for target in eligible_dates:
-                command = [
-                    sys.executable, "-u", str(MVP2),
+                command_args = [
                     "--date", target.isoformat(),
                     "--input-root", str(output_root),
                     "--thinking-level", args.thinking_level,
@@ -433,15 +440,16 @@ def main() -> int:
                     "--request-timeout", str(args.request_timeout),
                 ]
                 if args.evaluation_progress_file:
-                    command += ["--progress-file", str(Path(args.evaluation_progress_file).resolve())]
+                    command_args += ["--progress-file", str(Path(args.evaluation_progress_file).resolve())]
                 if args.retry_errors:
-                    command.append("--retry-errors")
+                    command_args.append("--retry-errors")
                 if args.force_evaluate:
-                    command.append("--force")
+                    command_args.append("--force")
                 if args.text_models:
-                    command += ["--text-models", args.text_models]
+                    command_args += ["--text-models", args.text_models]
                 if args.vision_models:
-                    command += ["--vision-models", args.vision_models]
+                    command_args += ["--vision-models", args.vision_models]
+                command = worker_command("evaluate", MVP2, command_args)
                 code = run_command(command)
                 stage_results[target.isoformat()] = code
                 if code != 0:
@@ -464,12 +472,12 @@ def main() -> int:
         if run_report and not blocked_after_extraction:
             report_codes: Dict[str, int] = {}
             for month in months:
-                command = [
-                    sys.executable, str(MVP3),
+                command_args = [
                     "--month", month,
                     "--input-root", str(output_root),
                     "--output-root", str(report_root),
                 ]
+                command = worker_command("report", MVP3, command_args)
                 code = run_command(command)
                 report_codes[month] = code
                 manifest_path = report_root / f"report_build_{month}.json"

@@ -145,6 +145,7 @@ export const api = {
   hiddenHistory: () => request<{ hidden: string[] }>('/workers/history/hidden'),
   restoreHistory: () => request<{ restored: number; hidden: string[] }>('/workers/history/restore', { method: 'POST' }),
   continue: (id: string) => request<Worker>(`/workers/${id}/continue`, { method: 'POST' }),
+  shutdown: () => request<{ shutting_down: boolean }>('/shutdown', { method: 'POST' }),
   log: async (id: string) => {
     const response = await fetch(`${API}/workers/${id}/log`)
     if (!response.ok) throw new Error('Could not load worker log')

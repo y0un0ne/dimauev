@@ -526,8 +526,8 @@ Runtime files and logs:
 Use the Stop shortcut before moving/deleting the project folder or when you want
 both local servers shut down. Closing the browser tab alone does not stop them.
 
-Production-like local mode may later build Vite assets and serve them through
-FastAPI as one process. Development mode remains two processes.
+Production builds serve compiled Vite assets through FastAPI as one packaged
+process. Development mode remains two processes.
 
 ## Testing Plan
 
@@ -584,6 +584,6 @@ Manual smoke test:
 - Video evaluation path
 - Notifications
 - MVP 4 Dimensions submission
-- Electron/native desktop packaging
+- Electron packaging; Windows native packaging uses PyInstaller and Inno Setup
 
 Independent MVP controls remain available even after full-flow mode is added.

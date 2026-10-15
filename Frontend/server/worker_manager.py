@@ -12,17 +12,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from credential_store import CredentialStore
+from app_paths import bundle_root, get_paths, is_frozen
+try:
+    from .credential_store import CredentialStore
+except ImportError:  # Development: imported from Frontend/server.
+    from credential_store import CredentialStore
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+APP_PATHS = get_paths()
+PROJECT_ROOT = bundle_root()
 PIPELINE = PROJECT_ROOT / "dimensions_pipeline.py"
-OUTPUT_ROOT = PROJECT_ROOT / "dimensions_output"
-LOG_ROOT = OUTPUT_ROOT / "logs"
-STATUS_ROOT = OUTPUT_ROOT / "pipeline_status"
-CONTROL_ROOT = Path(os.getenv("LOCALAPPDATA", OUTPUT_ROOT)) / "DimensionsAutoEvaluate" / "controls"
-PROGRESS_ROOT = Path(os.getenv("LOCALAPPDATA", OUTPUT_ROOT)) / "DimensionsAutoEvaluate" / "progress"
-HISTORY_ROOT = Path(os.getenv("LOCALAPPDATA", OUTPUT_ROOT)) / "DimensionsAutoEvaluate"
+OUTPUT_ROOT = APP_PATHS.output
+LOG_ROOT = APP_PATHS.logs
+STATUS_ROOT = APP_PATHS.pipeline_status
+CONTROL_ROOT = APP_PATHS.controls
+PROGRESS_ROOT = APP_PATHS.progress
+HISTORY_ROOT = APP_PATHS.config
 HISTORY_FILE = HISTORY_ROOT / "worker_history.json"
 
 
@@ -210,10 +215,18 @@ class WorkerManager:
         control_path: Optional[Path] = None,
         progress_path: Optional[Path] = None,
     ) -> tuple[List[str], Path]:
-        command = [sys.executable, "-u", str(PIPELINE)]
+        command = [sys.executable]
+        if is_frozen():
+            command += ["--worker", "pipeline"]
+        else:
+            command += ["-u", str(PIPELINE)]
         if kind == "report":
             month = str(payload["month"])
-            command += ["--month", month, "--report-only"]
+            command += [
+                "--month", month, "--report-only",
+                "--output-dir", str(OUTPUT_ROOT),
+                "--report-output-dir", str(APP_PATHS.reports),
+            ]
             return command, STATUS_ROOT / f"report_{month}.json"
 
         if payload.get("date"):
@@ -224,6 +237,11 @@ class WorkerManager:
                 "--end-date", str(payload["end_date"]),
             ]
         command.append(f"--{kind}-only")
+        command += [
+            "--output-dir", str(OUTPUT_ROOT),
+            "--profile-dir", str(APP_PATHS.browser_profile),
+            "--report-output-dir", str(APP_PATHS.reports),
+        ]
         scope = scope_label(payload)
 
         if kind == "extract":
@@ -326,6 +344,12 @@ class WorkerManager:
         else:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
         return worker.as_dict()
+
+    def stop_all(self) -> None:
+        with self._lock:
+            worker_ids = [worker.id for worker in self._workers.values() if worker.state == "running"]
+        for worker_id in worker_ids:
+            self.stop(worker_id)
 
     def continue_worker(self, worker_id: str) -> Dict[str, Any]:
         with self._lock:

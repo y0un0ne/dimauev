@@ -7,17 +7,18 @@ import urllib.request
 from datetime import date, datetime
 from pathlib import Path
 import re
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 PROJECT_IMPORT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_IMPORT_ROOT))
 
-from credential_store import ALLOWED_CREDENTIALS, CredentialStore
 from dimensions_extraction_status import latest_output_month, month_extraction_status, read_extraction_status
 from dimensions_evaluation_status import (
     evaluation_errors,
@@ -26,12 +27,23 @@ from dimensions_evaluation_status import (
     month_evaluation_status,
     read_evaluation_status,
 )
-from schemas import CredentialRequest, EvaluateRequest, ExtractRequest, GeminiAccountRequest, ReportRequest
-from runtime_health import dependency_health
-from worker_manager import OUTPUT_ROOT, PROJECT_ROOT, WorkerConflict, WorkerManager
+try:
+    from .credential_store import ALLOWED_CREDENTIALS, CredentialStore
+    from .runtime_health import dependency_health
+    from .schemas import CredentialRequest, EvaluateRequest, ExtractRequest, GeminiAccountRequest, ReportRequest
+    from .worker_manager import APP_PATHS, OUTPUT_ROOT, PROJECT_ROOT, WorkerConflict, WorkerManager
+except ImportError:  # Development: uvicorn launched from Frontend/server.
+    from credential_store import ALLOWED_CREDENTIALS, CredentialStore
+    from runtime_health import dependency_health
+    from schemas import CredentialRequest, EvaluateRequest, ExtractRequest, GeminiAccountRequest, ReportRequest
+    from worker_manager import APP_PATHS, OUTPUT_ROOT, PROJECT_ROOT, WorkerConflict, WorkerManager
 
 
-app = FastAPI(title="Dimensions Auto Evaluate", version="0.1.0")
+app = FastAPI(title="Dimensions Auto Evaluate", version="1.0.0")
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["127.0.0.1", "localhost", "testserver"],
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -41,6 +53,26 @@ app.add_middleware(
 )
 credential_store = CredentialStore()
 manager = WorkerManager(credential_store)
+shutdown_callback: Callable[[], None] = lambda: None
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    if request.method in {"POST", "PUT", "DELETE", "PATCH"}:
+        origin = request.headers.get("origin")
+        allowed_origins = {
+            f"http://{request.headers.get('host', '')}",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        }
+        if origin and origin not in allowed_origins:
+            return PlainTextResponse("Cross-origin mutation rejected", status_code=403)
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 DATE_ROOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REPORT_MONTH_RE = re.compile(r"^Conversation_Monitoring_(\d{4}-\d{2})(?:_.*)?\.xlsx$")
@@ -100,6 +132,8 @@ def health() -> Dict[str, Any]:
         "ok": True,
         "frontend_api_version": 4,
         "project_root": str(PROJECT_ROOT),
+        "data_root": str(OUTPUT_ROOT),
+        "production_mode": bool(getattr(sys, "frozen", False) or os.getenv("DIMENSIONS_PRODUCTION_MODE") == "1"),
         "dependencies": dependency_health(),
     }
 
@@ -192,6 +226,13 @@ def continue_worker(worker_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Worker not found") from e
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@app.post("/api/shutdown")
+def shutdown() -> Dict[str, bool]:
+    manager.stop_all()
+    shutdown_callback()
+    return {"shutting_down": True}
 
 
 @app.get("/api/workers/{worker_id}/log", response_class=PlainTextResponse)
@@ -424,3 +465,17 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+
+
+STATIC_ROOT = PROJECT_ROOT / "Frontend" / "client" / "dist"
+if (getattr(sys, "frozen", False) or os.getenv("DIMENSIONS_PRODUCTION_MODE") == "1") and STATIC_ROOT.exists():
+    assets = STATIC_ROOT / "assets"
+    if assets.exists():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def production_spa(full_path: str) -> FileResponse:
+        candidate = (STATIC_ROOT / full_path).resolve()
+        if full_path and candidate.is_file() and STATIC_ROOT in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(STATIC_ROOT / "index.html")

@@ -34,6 +34,7 @@ class ExtractRequest(DateScope):
 
 
 class EvaluateRequest(DateScope):
+    cloud_data_consent: Literal[True]
     mode: Literal["normal", "retry_errors", "force"] = "normal"
     delay: float = Field(default=4.2, ge=0, le=300)
     limit: int = Field(default=0, ge=0, le=100000)
@@ -56,4 +57,3 @@ class GeminiAccountRequest(BaseModel):
     label: str = Field(min_length=1, max_length=100)
     email: str = Field(default="", max_length=254)
     api_key: str = Field(min_length=1, max_length=1280)
-
