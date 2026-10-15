@@ -11,12 +11,24 @@ import time
 import webbrowser
 from pathlib import Path
 
-import uvicorn
-
 from app_paths import get_paths
 
 
 ERROR_ALREADY_EXISTS = 183
+_standard_streams: list[object] = []
+
+
+def ensure_standard_streams(log_path: Path) -> None:
+    """Give windowed PyInstaller processes valid streams without changing redirected workers."""
+    if sys.stdin is None:
+        stream = open(os.devnull, "r", encoding="utf-8")
+        _standard_streams.append(stream)
+        sys.stdin = stream
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            stream = log_path.open("a", encoding="utf-8", buffering=1)
+            _standard_streams.append(stream)
+            setattr(sys, name, stream)
 
 
 def acquire_single_instance() -> object | None:
@@ -68,6 +80,7 @@ def run_server(port: int = 0, open_browser: bool = True) -> int:
     os.environ["DIMENSIONS_PRODUCTION_MODE"] = "1"
     paths = get_paths()
     paths.ensure_runtime_dirs()
+    ensure_standard_streams(paths.logs / "application.log")
     instance = acquire_single_instance()
     if instance is None:
         open_existing(paths)
@@ -93,6 +106,7 @@ def run_server(port: int = 0, open_browser: bool = True) -> int:
         threading.Thread(target=launch, daemon=True).start()
 
     from Frontend.server import app as app_module
+    import uvicorn
 
     try:
         server = uvicorn.Server(uvicorn.Config(app_module.app, host="127.0.0.1", port=selected_port, log_level="info"))
@@ -105,6 +119,9 @@ def run_server(port: int = 0, open_browser: bool = True) -> int:
 
 
 def main() -> int:
+    paths = get_paths()
+    paths.ensure_runtime_dirs()
+    ensure_standard_streams(paths.logs / "application.log")
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--worker", choices=["pipeline", "extract", "evaluate", "report"])
     parser.add_argument("--server", action="store_true")

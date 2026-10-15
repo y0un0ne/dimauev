@@ -1,5 +1,5 @@
 #define MyAppName "Dimensions Auto Evaluate"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Dimensions Auto Evaluate"
 #define MyAppExeName "DimensionsAutoEvaluate.exe"
 

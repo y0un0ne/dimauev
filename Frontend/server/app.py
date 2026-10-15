@@ -39,7 +39,7 @@ except ImportError:  # Development: uvicorn launched from Frontend/server.
     from worker_manager import APP_PATHS, OUTPUT_ROOT, PROJECT_ROOT, WorkerConflict, WorkerManager
 
 
-app = FastAPI(title="Dimensions Auto Evaluate", version="1.0.0")
+app = FastAPI(title="Dimensions Auto Evaluate", version="1.0.1")
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=["127.0.0.1", "localhost", "testserver"],

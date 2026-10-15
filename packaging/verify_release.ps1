@@ -44,6 +44,42 @@ try {
     $shutdown = Invoke-RestMethod "http://127.0.0.1:18765/api/shutdown" -Method Post -TimeoutSec 5
     if (-not $shutdown.shutting_down) { throw "Packaged graceful shutdown failed." }
     if (-not $process.WaitForExit(10000)) { throw "Packaged process did not exit after shutdown." }
+
+    $workerInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $workerInfo.FileName = $exe
+    $workerInfo.Arguments = "--worker pipeline --help"
+    $workerInfo.WorkingDirectory = $AppDir
+    $workerInfo.UseShellExecute = $true
+    $workerProcess = [System.Diagnostics.Process]::Start($workerInfo)
+    if (-not $workerProcess.WaitForExit(30000)) {
+        taskkill.exe /PID $workerProcess.Id /T /F 2>$null | Out-Null
+        throw "Unredirected frozen worker did not exit."
+    }
+    if ($workerProcess.ExitCode -ne 0) { throw "Unredirected frozen worker exited with code $($workerProcess.ExitCode)." }
+
+    $windowedInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $windowedInfo.FileName = $exe
+    $windowedInfo.Arguments = "--server --no-browser --port 18766"
+    $windowedInfo.WorkingDirectory = $AppDir
+    $windowedInfo.UseShellExecute = $true
+    $windowedProcess = [System.Diagnostics.Process]::Start($windowedInfo)
+    try {
+        $windowedHealthy = $false
+        for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Milliseconds 500
+            if ($windowedProcess.HasExited) { throw "Unredirected packaged server exited with code $($windowedProcess.ExitCode)." }
+            try {
+                $windowedHealth = Invoke-RestMethod "http://127.0.0.1:18766/api/health" -TimeoutSec 1
+                if ($windowedHealth.ok -and $windowedHealth.production_mode) { $windowedHealthy = $true; break }
+            } catch { }
+        }
+        if (-not $windowedHealthy) { throw "Unredirected packaged server did not become healthy." }
+        $windowedShutdown = Invoke-RestMethod "http://127.0.0.1:18766/api/shutdown" -Method Post -TimeoutSec 5
+        if (-not $windowedShutdown.shutting_down) { throw "Unredirected packaged server graceful shutdown failed." }
+        if (-not $windowedProcess.WaitForExit(10000)) { throw "Unredirected packaged server did not exit after shutdown." }
+    } finally {
+        if (-not $windowedProcess.HasExited) { taskkill.exe /PID $windowedProcess.Id /T /F 2>$null | Out-Null }
+    }
     "Packaged release smoke test passed."
 } finally {
     if (-not $process.HasExited) { taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null }

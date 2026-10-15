@@ -77,8 +77,12 @@ $exe = Join-Path $distRoot "DimensionsAutoEvaluate\DimensionsAutoEvaluate.exe"
 if (-not (Test-Path $exe)) { throw "PyInstaller output missing: $exe" }
 
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+Get-ChildItem $releaseRoot -File -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -eq "SHA256SUMS.txt" -or
+    $_.Name -eq "DimensionsAutoEvaluate-portable-win-x64.zip" -or
+    $_.Name -like "DimensionsAutoEvaluate-Setup-*-win-x64.exe"
+} | Remove-Item -Force
 $portable = Join-Path $releaseRoot "DimensionsAutoEvaluate-portable-win-x64.zip"
-Remove-Item -LiteralPath $portable -Force -ErrorAction SilentlyContinue
 & tar.exe -a -c -f $portable -C (Join-Path $distRoot "DimensionsAutoEvaluate") .
 if ($LASTEXITCODE -ne 0) { throw "Portable ZIP creation failed with exit code $LASTEXITCODE" }
 
